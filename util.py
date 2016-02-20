@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 WORDVECTORS_PATH = ["/Users/david/Documents/Stanford/SNLI/data/GoogleNews-vectors-negative300.bin", "/juicier/scr100/scr/qiaojing/snli/data/GoogleNews-vectors-negative300.bin"]
+WORDVECTOR_DIM = 300
 
 # load model to get word vector
 from gensim.models import word2vec
@@ -26,6 +27,13 @@ def get_wordvector(sentence):
             pass
     return np.asarray(sentence_wv)
 
+def word_to_vector(word):
+    vector = np.zeros(WORDVECTOR_DIM)
+    try:
+        vector = model[word]
+    except KeyError:
+        pass
+    return vector
 
 def process(data):
     X_prem = []
