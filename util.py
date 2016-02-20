@@ -1,11 +1,13 @@
 import json
 import numpy as np
+import os
 
-WORDVECTORS_PATH = ["/Users/david/Documents/Stanford/SNLI/data/GoogleNews-vectors-negative300.bin", "/scr/nlp/data/wordvectors/en/google/GoogleNews-vectors-negative300.txt"]
+WORDVECTORS_PATH = ["/Users/david/Documents/Stanford/SNLI/data/GoogleNews-vectors-negative300.bin", "/juicier/scr100/scr/qiaojing/snli/data/GoogleNews-vectors-negative300.bin"]
 
 # load model to get word vector
 from gensim.models import word2vec
 print("Loading word vectors ...")
+model = None
 for path in WORDVECTORS_PATH:
     if os.path.exists(path): 
         model = word2vec.Word2Vec.load_word2vec_format(path, binary=True)

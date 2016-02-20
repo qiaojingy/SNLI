@@ -5,6 +5,12 @@ import numpy as np
 import pickle
 
 SNLI_DIR = ["/Users/david/Documents/Stanford/SNLI/data/snli_1.0", "/scr/nlp/data/snli_1.0"]
+directory = None
+for path in SNLI_DIR:
+    if os.path.isdir(path):
+        directory = path
+if directory == None:
+    print("snli data not found")
 
 def load_dataset():
     def download_data():
@@ -21,8 +27,7 @@ def load_dataset():
         z.extractall()
 
     def load_snli_data(filename):
-        directory = "../data/snli_1.0/";
-        f = open(directory + filename)
+        f = open(directory + '/' + filename)
         data = []
         while (1):
             line = f.readline()
@@ -34,7 +39,7 @@ def load_dataset():
     data_train = load_snli_data('snli_1.0_train.jsonl')
     data_dev = load_snli_data('snli_1.0_dev.jsonl')
     data_test = load_snli_data('snli_1.0_test.jsonl')
-    return data_train[0:1000], data_dev[0:1000], data_test[0:1000]
+    return data_train, data_dev, data_test
 
 def get_data_processed():
 
@@ -76,14 +81,14 @@ def get_data_processed():
         return (X_prem, X_hypo, y)
 
     import os.path
-    if (os.path.isfile('../data/snli_1.0/train_processed.dat')):
-        with open('../data/snli_1.0/train_processed.dat', 'rb') as f:
+    if (os.path.isfile(directory + '/train_processed.dat')):
+        with open(directory + '/train_processed.dat', 'rb') as f:
             train_processed = pickle.load(f)
             f.close()
-        with open('../data/snli_1.0/dev_processed.dat', 'rb') as f:
+        with open(directory + '/dev_processed.dat', 'rb') as f:
             dev_processed = pickle.load(f)
             f.close()
-        with open('../data/snli_1.0/test_processed.dat', 'rb') as f:
+        with open(directory + '/test_processed.dat', 'rb') as f:
             test_processed = pickle.load(f)
             f.close()
 
@@ -92,20 +97,20 @@ def get_data_processed():
 
         # load model to get word vector
         from gensim.models import word2vec
-        model = word2vec.Word2Vec.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+        model = word2vec.Word2Vec.load_word2vec_format(directory + '/../GoogleNews-vectors-negative300.bin', binary=True)
         
         # train_processed = X_train_prem, X_train_hypo, y_train
         train_processed = process(data_train)
         dev_processed = process(data_dev)
         test_processed = process(data_test)
 
-        with open('../data/snli_1.0/train_processed.dat', 'wb') as f:
+        with open(directory + '/snli_1.0/train_processed.dat', 'wb') as f:
             pickle.dump(train_processed, f)
             f.close()
-        with open('../data/snli_1.0/dev_processed.dat', 'wb') as f:
+        with open(direcotory +'/snli_1.0/dev_processed.dat', 'wb') as f:
             pickle.dump(dev_processed, f)
             f.close()
-        with open('../data/snli_1.0/test_processed.dat', 'wb') as f:
+        with open(directory + '/snli_1.0/test_processed.dat', 'wb') as f:
             pickle.dump(test_processed, f)
             f.close()
 
