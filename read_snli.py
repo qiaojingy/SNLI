@@ -4,6 +4,8 @@ import json
 import numpy as np
 import pickle
 
+SNLI_DIR = ["/Users/david/Documents/Stanford/SNLI/data/snli_1.0", "/scr/nlp/data/snli_1.0"]
+
 def load_dataset():
     def download_data():
         print("Downloading SNLI corpus ...");
@@ -28,9 +30,6 @@ def load_dataset():
                 break
             data.append(json.loads(line))
         return data
-
-    if not os.path.exists("snli_1.0") and not os.path.exists("../data/snli_1.0"):
-        download_data();
 
     data_train = load_snli_data('snli_1.0_train.jsonl')
     data_dev = load_snli_data('snli_1.0_dev.jsonl')
