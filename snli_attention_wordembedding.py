@@ -27,7 +27,7 @@ GRAD_CLIP = 100
 NUM_EPOCHS = 20
 
 # Batch Size
-BATCH_SIZE = 10
+BATCH_SIZE = 1024
 
 # Load data
 from read_snli import *
@@ -35,31 +35,44 @@ from read_snli import *
 data_train, data_val, data_test = load_dataset()
 
 # Clip size to test algorithm
-data_train = data_train[0:1000]
-data_val = data_val[0:1000]
+data_train = data_train
+data_val = data_val
 data_test = data_test[0:200]
 
 # Number of training samples and validation samples
 TRAIN_SIZE = len(data_train)
 VAL_SIZE = len(data_val)
 
+# Maximum length of premise sentence
+MAX_LENGTH_PREM = 0
+# Maximum length of hypothesis sentence
+MAX_LENGTH_HYPO = 0
 # Build vocabulary
 vocab = set()
 for entry in data_train:
     vocab.update(w.strip(",.!?:;") for w in entry['sentence1'].split(' '))
     vocab.update(w.strip(",.!?:;") for w in entry['sentence2'].split(' '))
+    MAX_LENGTH_PREM = max(MAX_LENGTH_PREM, len(entry['sentence1'].split(' ')))
+    MAX_LENGTH_HYPO = max(MAX_LENGTH_HYPO, len(entry['sentence2'].split(' ')))
 for entry in data_val:
     vocab.update(w.strip(",.!?:;") for w in entry['sentence1'].split(' '))
     vocab.update(w.strip(",.!?:;") for w in entry['sentence2'].split(' '))
+    MAX_LENGTH_PREM = max(MAX_LENGTH_PREM, len(entry['sentence1'].split(' ')))
+    MAX_LENGTH_HYPO = max(MAX_LENGTH_HYPO, len(entry['sentence2'].split(' ')))
 
 vocab = list(vocab)
+vocab.append('::');
+MAX_LENGTH_HYPO += 1
 VOCAB_SIZE = len(vocab)
 word_to_ix = {word:i for i, word in enumerate(vocab)}
 ix_to_word = {i:word for i, word in enumerate(vocab)}
 
+print(MAX_LENGTH_PREM)
+print(MAX_LENGTH_HYPO)
+
 # Build initial word_vector
 from util import word_to_vector
-word_vector_init = np.asarray([word_to_vector(word) for word in vocab])
+word_vector_init = np.asarray([word_to_vector(word) for word in vocab], dtype='float32')
 
 # Helper function to get a batch of data for each training update or each validation calculation
 def get_input_matrices_2(batch_data):
@@ -88,10 +101,6 @@ def get_input_matrices_2(batch_data):
 
     batch_size = len(X_prem)
 
-    # Maximum length of premise sentence
-    MAX_LENGTH_PREM = max([len(entry) for entry in X_prem])
-    # Maximum length of hypothesis sentence
-    MAX_LENGTH_HYPO = max([len(entry) for entry in X_hypo])
 
     # Mask is used in Lasagne LSTM layer
     X_prem_mask = np.zeros((batch_size, MAX_LENGTH_PREM))
@@ -103,6 +112,7 @@ def get_input_matrices_2(batch_data):
 
     for i in range(batch_size):
         X_hypo_mask[i, :len(X_hypo[i])] = 1
+        X_hypo[i].insert(0, VOCAB_SIZE - 1)
         X_hypo[i] = np.pad(X_hypo[i], [(0, MAX_LENGTH_HYPO - len(X_hypo[i]))], 'constant')
 
     return (X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
@@ -133,10 +143,13 @@ def main():
     l_mask_hypo = lasagne.layers.InputLayer(shape=(BATCH_SIZE, None))
 
     # Word embedding layers
-    l_in_prem_embedding = lasagne.layers.EmbeddingLayer(l_in_prem, VOCAB_SIZE, 
-        WORD_VECTOR_SIZE, W=word_vector_init)
-    l_in_hypo_embedding = lasagne.layers.EmbeddingLayer(l_in_hypo, VOCAB_SIZE, 
-        WORD_VECTOR_SIZE, W=word_vector_init)
+    l_in_prem_hypo = lasagne.layers.ConcatLayer([l_in_prem, l_in_hypo], axis=1)
+    l_in_embedding = lasagne.layers.EmbeddingLayer(l_in_prem_hypo, 
+        VOCAB_SIZE, WORD_VECTOR_SIZE, W=word_vector_init, name='EmbeddingLayer')
+    l_in_prem_embedding = lasagne.layers.SliceLayer(l_in_embedding, 
+        slice(0, MAX_LENGTH_PREM), axis=1)
+    l_in_hypo_embedding = lasagne.layers.SliceLayer(l_in_embedding,
+        slice(MAX_LENGTH_PREM, MAX_LENGTH_PREM + MAX_LENGTH_HYPO), axis=1)
 
     # LSTM layer for premise
     l_lstm_prem = lasagne.layers.LSTMLayer_withCellOut(l_in_prem_embedding, K_HIDDEN, 
@@ -206,27 +219,27 @@ def main():
                 X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(n, data_train)
                 avg_cost += train(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
                 n += BATCH_SIZE
+                # Calculate validation accuracy
+                m = 0
+                val_err = 0
+                val_acc = 0
+                val_batches = 0
+                while m < VAL_SIZE:
+                    X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(m, data_val)
+                    err, acc = validate(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                    val_err += err
+                    val_acc += acc
+                    val_batches += 1
+                    m += BATCH_SIZE
+                    
+                print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
+                print("  validation accuracy:\t\t{:.2f} %".format(
+                val_acc / val_batches * 100))
 
             avg_cost /= TRAIN_SIZE
 
             print("Epoch {} average loss = {}".format(epoch, avg_cost))
             
-            # Calculate validation accuracy
-            n = 0
-            val_err = 0
-            val_acc = 0
-            val_batches = 0
-            while n < VAL_SIZE:
-                X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(n, data_val)
-                err, acc = validate(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
-                val_err += err
-                val_acc += acc
-                val_batches += 1
-                n += BATCH_SIZE
-                
-            print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
-            print("  validation accuracy:\t\t{:.2f} %".format(
-            val_acc / val_batches * 100))
 
     except KeyboardInterrupt:
         pass

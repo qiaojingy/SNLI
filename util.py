@@ -27,8 +27,9 @@ def get_wordvector(sentence):
             pass
     return np.asarray(sentence_wv)
 
+import lasagne.init
 def word_to_vector(word):
-    vector = np.zeros(WORDVECTOR_DIM)
+    vector = lasagne.init.Uniform(0.05).__call__(WORDVECTOR_DIM)
     try:
         vector = model[word]
     except KeyError:
