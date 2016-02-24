@@ -27,7 +27,7 @@ GRAD_CLIP = 100
 NUM_EPOCHS = 20
 
 # Batch Size
-BATCH_SIZE = 1024
+BATCH_SIZE = 32
 
 # Load data
 from read_snli import *
@@ -35,8 +35,8 @@ from read_snli import *
 data_train, data_val, data_test = load_dataset()
 
 # Clip size to test algorithm
-data_train = data_train
-data_val = data_val
+data_train = data_train[0:1000]
+data_val = data_val[0:200]
 data_test = data_test[0:200]
 
 # Number of training samples and validation samples
@@ -192,7 +192,7 @@ def main():
 
     # Compute ADAM updates for training
     print("Computing updates ...")
-    updates = lasagne.updates.adam(cost, all_params, learning_rate=LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=1e-08)
+    updates = lasagne.updates.adam(cost, all_params, masks=[('EmbeddingLayer.W', np.zeros((VOCAB_SIZE, WORD_VECTOR_SIZE), dtype='float32'))], learning_rate=LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=1e-08)
 
     """
     # Test
