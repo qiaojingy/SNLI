@@ -27,7 +27,7 @@ GRAD_CLIP = 100
 NUM_EPOCHS = 20
 
 # Batch Size
-BATCH_SIZE = 32
+BATCH_SIZE = 1024
 
 # Load data
 from read_snli import *
@@ -35,8 +35,8 @@ from read_snli import *
 data_train, data_val, data_test = load_dataset()
 
 # Clip size to test algorithm
-data_train = data_train[0:1000]
-data_val = data_val[0:200]
+data_train = data_train
+data_val = data_val
 data_test = data_test[0:200]
 
 # Number of training samples and validation samples
@@ -47,6 +47,11 @@ VAL_SIZE = len(data_val)
 MAX_LENGTH_PREM = 0
 # Maximum length of hypothesis sentence
 MAX_LENGTH_HYPO = 0
+# Debug: Remove unknown words in the data
+# from util import remove_unknown_words
+# remove_unknown_words(data_train)
+# remove_unknown_words(data_val)
+
 # Build vocabulary
 vocab = set()
 for entry in data_train:
@@ -61,18 +66,18 @@ for entry in data_val:
     MAX_LENGTH_HYPO = max(MAX_LENGTH_HYPO, len(entry['sentence2'].split(' ')))
 
 vocab = list(vocab)
-vocab.append('::');
+vocab.append('::')
 MAX_LENGTH_HYPO += 1
 VOCAB_SIZE = len(vocab)
 word_to_ix = {word:i for i, word in enumerate(vocab)}
 ix_to_word = {i:word for i, word in enumerate(vocab)}
 
-print(MAX_LENGTH_PREM)
-print(MAX_LENGTH_HYPO)
 
 # Build initial word_vector
-from util import word_to_vector
-word_vector_init = np.asarray([word_to_vector(word) for word in vocab], dtype='float32')
+from util import get_initwv_and_mask
+print("Building initial word vector")
+word_vector_init, embedding_w_mask = get_initwv_and_mask(vocab)
+# embedding_w_mask = np.zeros((VOCAB_SIZE, WORD_VECTOR_SIZE), dtype='float32')
 
 # Helper function to get a batch of data for each training update or each validation calculation
 def get_input_matrices_2(batch_data):
@@ -107,13 +112,16 @@ def get_input_matrices_2(batch_data):
     X_hypo_mask = np.zeros((batch_size, MAX_LENGTH_HYPO))
     
     for i in range(batch_size):
-        X_prem_mask[i, :len(X_prem[i])] = 1
+        X_prem_mask[i, 0:len(X_prem[i])] = 1
         X_prem[i] = np.pad(X_prem[i], [(0, MAX_LENGTH_PREM - len(X_prem[i]))], 'constant')
 
     for i in range(batch_size):
-        X_hypo_mask[i, :len(X_hypo[i])] = 1
         X_hypo[i].insert(0, VOCAB_SIZE - 1)
+        X_hypo_mask[i, 0:len(X_hypo[i])] = 1
         X_hypo[i] = np.pad(X_hypo[i], [(0, MAX_LENGTH_HYPO - len(X_hypo[i]))], 'constant')
+
+    X_prem = np.asarray(X_prem, dtype='float32')
+    X_hypo = np.asarray(X_hypo, dtype='float32')
 
     return (X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
 
@@ -134,19 +142,20 @@ def main():
     input_var_prem = input_var_type(var_name)
     input_var_hypo = input_var_type(var_name)
     
-    l_in_prem = lasagne.layers.InputLayer(shape=(BATCH_SIZE, None), input_var=input_var_prem)
+    l_in_prem = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_PREM), input_var=input_var_prem)
     # Mask layer for premise
-    l_mask_prem = lasagne.layers.InputLayer(shape=(BATCH_SIZE, None))
+    l_mask_prem = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_PREM))
     # Input layer for hypothesis
-    l_in_hypo = lasagne.layers.InputLayer(shape=(BATCH_SIZE, None), input_var=input_var_hypo)
+    l_in_hypo = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_HYPO), input_var=input_var_hypo)
     # Mask layer for hypothesis
-    l_mask_hypo = lasagne.layers.InputLayer(shape=(BATCH_SIZE, None))
+    l_mask_hypo = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_HYPO))
 
     # Word embedding layers
     l_in_prem_hypo = lasagne.layers.ConcatLayer([l_in_prem, l_in_hypo], axis=1)
     l_in_embedding = lasagne.layers.EmbeddingLayer(l_in_prem_hypo, 
         VOCAB_SIZE, WORD_VECTOR_SIZE, W=word_vector_init, name='EmbeddingLayer')
-    l_in_prem_embedding = lasagne.layers.SliceLayer(l_in_embedding, 
+    l_in_embedding_dropout = lasagne.layers.DropoutLayer(l_in_embedding, p=0.2, rescale=True)
+    l_in_prem_embedding = lasagne.layers.SliceLayer(l_in_embedding_dropout, 
         slice(0, MAX_LENGTH_PREM), axis=1)
     l_in_hypo_embedding = lasagne.layers.SliceLayer(l_in_embedding,
         slice(MAX_LENGTH_PREM, MAX_LENGTH_PREM + MAX_LENGTH_HYPO), axis=1)
@@ -170,7 +179,7 @@ def main():
         cell_init=l_lstm_prem_out, mask_input=l_mask_hypo)
 
     # Isolate the last hidden unit output
-    l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo, -1, 1)
+    l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo, -1, axis=1)
 
     # Attention layer
     l_attention = lasagne.layers.AttentionLayer([l_lstm_prem, l_lstm_hypo], K_HIDDEN, mask_input=l_mask_prem)
@@ -179,20 +188,22 @@ def main():
         W=lasagne.init.Normal(), nonlinearity=lasagne.nonlinearities.softmax)
 
     # The output of the net
-    network_output = lasagne.layers.get_output(l_out)
+    network_output_train = lasagne.layers.get_output(l_out, deterministic=False)
+    network_output_test = lasagne.layers.get_output(l_out, deterministic=True)
 
     # Theano tensor for the targets
     target_values = T.ivector('target_output')
 
     # The loss function is calculated as the mean of the cross-entropy
-    cost = lasagne.objectives.categorical_crossentropy(network_output, target_values).mean()
+    cost = lasagne.objectives.categorical_crossentropy(network_output_train, target_values).mean()
 
     # Retrieve all parameters from the network
     all_params = lasagne.layers.get_all_params(l_out)
 
     # Compute ADAM updates for training
     print("Computing updates ...")
-    updates = lasagne.updates.adam(cost, all_params, masks=[('EmbeddingLayer.W', np.zeros((VOCAB_SIZE, WORD_VECTOR_SIZE), dtype='float32'))], learning_rate=LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=1e-08)
+    # updates = lasagne.updates.adam(cost, all_params, learning_rate=LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=1e-08)
+    updates = lasagne.updates.adam(cost, all_params, masks=[('EmbeddingLayer.W', embedding_w_mask)], learning_rate=LEARNING_RATE, beta1=0.9, beta2=0.999, epsilon=1e-08)
 
     """
     # Test
@@ -203,11 +214,12 @@ def main():
     """
 
     # Theano functions for training and computing cost
+    train_acc = T.mean(T.eq(T.argmax(network_output_test, axis=1), target_values), dtype=theano.config.floatX)
     print("Compiling functions ...")
-    train = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], cost, updates=updates, allow_input_downcast=True)
+    train = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], [cost, train_acc], updates=updates, allow_input_downcast=True)
 
     # Theano function computing the validation loss and accuracy
-    val_acc = T.mean(T.eq(T.argmax(network_output, axis=1), target_values), dtype=theano.config.floatX)
+    val_acc = T.mean(T.eq(T.argmax(network_output_test, axis=1), target_values), dtype=theano.config.floatX)
     validate = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], [cost, val_acc], allow_input_downcast=True)
 
     print("Training ...")
@@ -215,30 +227,48 @@ def main():
         for epoch in range(NUM_EPOCHS):
             n = 0
             avg_cost = 0.0
+            count = 0
+            sub_epoch = 0
+            train_acc = 0
             while n < TRAIN_SIZE:
                 X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(n, data_train)
-                avg_cost += train(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                """
+                print(X_prem.shape)
+                print(X_prem_mask.shape)
+                print(X_hypo.shape)
+                print(X_hypo_mask.shape)
+                """
+                err, acc = train(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                avg_cost += err
+                train_acc += acc
                 n += BATCH_SIZE
-                # Calculate validation accuracy
-                m = 0
-                val_err = 0
-                val_acc = 0
-                val_batches = 0
-                while m < VAL_SIZE:
-                    X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(m, data_val)
-                    err, acc = validate(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
-                    val_err += err
-                    val_acc += acc
-                    val_batches += 1
-                    m += BATCH_SIZE
-                    
-                print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
-                print("  validation accuracy:\t\t{:.2f} %".format(
-                val_acc / val_batches * 100))
+                count += 1
 
-            avg_cost /= TRAIN_SIZE
+                if (n / BATCH_SIZE) % (TRAIN_SIZE / BATCH_SIZE / 5) == 0:
+                    sub_epoch += 1
+                    avg_cost /= count
+                    print("Sub epoch {} average loss = {}, accuracy = {}".format(sub_epoch, avg_cost, train_acc / count * 100))
+                    avg_cost = 0
+                    count = 0
+                    train_acc = 0
 
-            print("Epoch {} average loss = {}".format(epoch, avg_cost))
+
+                    # Calculate validation accuracy
+                    m = 0
+                    val_err = 0
+                    val_acc = 0
+                    val_batches = 0
+                    while m < VAL_SIZE:
+                        X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(m, data_val)
+                        err, acc = validate(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                        val_err += err
+                        val_acc += acc
+                        val_batches += 1
+                        m += BATCH_SIZE
+                        
+                    print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
+                    print("  validation accuracy:\t\t{:.2f} %".format(
+                    val_acc / val_batches * 100))
             
 
     except KeyboardInterrupt:

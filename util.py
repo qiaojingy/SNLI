@@ -29,12 +29,51 @@ def get_wordvector(sentence):
 
 import lasagne.init
 def word_to_vector(word):
-    vector = lasagne.init.Uniform(0.05).__call__(WORDVECTOR_DIM)
     try:
         vector = model[word]
     except KeyError:
-        pass
+        vector = lasagne.init.Uniform(0.05).__call__(WORDVECTOR_DIM)
     return vector
+
+def get_initwv_and_mask(vocab):
+    initwv = []
+    mask = []
+    for word in vocab:
+        try:
+            vector = model[word]
+            mask.append(np.ones(WORDVECTOR_DIM))
+        except KeyError:
+            vector = lasagne.init.Uniform(0.05).__call__(WORDVECTOR_DIM)
+            mask.append(np.zeros(WORDVECTOR_DIM))
+        initwv.append(vector)
+    initwv = np.asarray(initwv, dtype='float32')
+    mask = np.asarray(mask, dtype='float32')
+    return initwv, mask
+
+def remove_unknown_words(data):
+    for entry in data:
+        sentence1 = entry['sentence1']
+        sentence2 = entry['sentence2']
+        # convert the first letter of sentence to lower case
+        # currently not implemented
+        words1 = []
+        for word in sentence1.split(' '):
+            try:
+                t = model[word.strip(",.!?:;")]
+                words1.append(word)
+            except KeyError:
+                # For unknown words, we currently just ignore them
+                pass
+        entry['sentence1'] = ' '.join(words1)
+        words2 = []
+        for word in sentence2.split(' '):
+            try:
+                t = model[word.strip(",.!?:;")]
+                words2.append(word)
+            except KeyError:
+                # For unknown words, we currently just ignore them
+                pass
+        entry['sentence2'] = ' '.join(words2)
 
 def process(data):
     X_prem = []

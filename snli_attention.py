@@ -35,7 +35,7 @@ from read_snli import *
 data_train, data_val, data_test = load_dataset()
 
 # Clip size to test algorithm
-data_train = data_train
+data_train = data_train[10000:20000]
 data_val = data_val
 data_test = data_test[0:200]
 

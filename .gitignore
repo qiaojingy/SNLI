@@ -1,3 +1,5 @@
 Lasagne/
 *.pyc
 *.DS_Store
+*.rlt
+*.swp
