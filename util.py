@@ -41,10 +41,10 @@ def get_initwv_and_mask(vocab):
     for word in vocab:
         try:
             vector = model[word]
-            mask.append(np.ones(WORDVECTOR_DIM))
+            mask.append(np.zeros(WORDVECTOR_DIM))
         except KeyError:
             vector = lasagne.init.Uniform(0.05).__call__(WORDVECTOR_DIM)
-            mask.append(np.zeros(WORDVECTOR_DIM))
+            mask.append(np.ones(WORDVECTOR_DIM))
         initwv.append(vector)
     initwv = np.asarray(initwv, dtype='float32')
     mask = np.asarray(mask, dtype='float32')

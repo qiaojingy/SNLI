@@ -4,58 +4,47 @@ import numpy as np
 import theano
 import theano.tensor as T
 import lasagne
+import sys
+import getopt
 
 # Lasagne seed for reproducibility
 lasagne.random.set_rng(np.random.RandomState(1))
-
 # Length of word vector
 WORD_VECTOR_SIZE = 300
-
 # Number of labels
 NUM_LABELS = 4
-
 # Size of embeddings and hidden unit
-K_HIDDEN = 100
-
+K_HIDDEN = 159
 # Learning rate
 LEARNING_RATE = 0.01
-
 # Dropout rate
-DROPOUT_RATE = 0.2
-
+DROPOUT_RATE = 0.3
 # Regularization strength
 REGU = 1e-3
-
 # All gradients above this will be clipped
 GRAD_CLIP = 100
-
 # Number of epochs to train the net
-NUM_EPOCHS = 20
-
+NUM_EPOCHS = 50
 # Batch Size
 BATCH_SIZE = 1024
 
 # Load data
 from read_snli import *
-
 data_train, data_val, data_test = load_dataset()
-
 # Clip size to test algorithm
 data_train = data_train
 data_val = data_val
 data_test = data_test[0:200]
-
 # Number of training samples and validation samples
 TRAIN_SIZE = len(data_train)
 VAL_SIZE = len(data_val)
-
 # Maximum length of premise sentence
 MAX_LENGTH_PREM = 0
 # Maximum length of hypothesis sentence
 MAX_LENGTH_HYPO = 0
 # Debug: Remove unknown words in the data
 from util import remove_unknown_words
-remove_unknown_words(data_train)
+# remove_unknown_words(data_train)
 remove_unknown_words(data_val)
 
 # Build vocabulary
@@ -155,43 +144,38 @@ def main():
     l_in_hypo = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_HYPO), input_var=input_var_hypo)
     # Mask layer for hypothesis
     l_mask_hypo = lasagne.layers.InputLayer(shape=(None, MAX_LENGTH_HYPO))
-
     # Word embedding layers
     l_in_prem_hypo = lasagne.layers.ConcatLayer([l_in_prem, l_in_hypo], axis=1)
     l_in_embedding = lasagne.layers.EmbeddingLayer(l_in_prem_hypo, 
         VOCAB_SIZE, WORD_VECTOR_SIZE, W=word_vector_init, name='EmbeddingLayer')
+    # Adding this linear layer didn't increase the accuracy, so I comment it out
+    # l_in_linear = lasagne.layers.EmbeddingChangeLayer(l_in_embedding, K_HIDDEN, nonlinearity=lasagne.nonlinearities.linear)
     l_in_embedding_dropout = lasagne.layers.DropoutLayer(l_in_embedding, p=DROPOUT_RATE, rescale=True)
     l_in_prem_embedding = lasagne.layers.SliceLayer(l_in_embedding_dropout, 
         slice(0, MAX_LENGTH_PREM), axis=1)
     l_in_hypo_embedding = lasagne.layers.SliceLayer(l_in_embedding,
         slice(MAX_LENGTH_PREM, MAX_LENGTH_PREM + MAX_LENGTH_HYPO), axis=1)
-
     # LSTM layer for premise
     l_lstm_prem = lasagne.layers.LSTMLayer_withCellOut(l_in_prem_embedding, K_HIDDEN, 
         peepholes=False, grad_clipping=GRAD_CLIP, 
         nonlinearity=lasagne.nonlinearities.tanh, 
         mask_input=l_mask_prem, only_return_final=False)
-
-
+    l_lstm_prem_dropout = lasagne.layers.DropoutLayer(l_lstm_prem, p=DROPOUT_RATE, rescale=True)
     # The slicelayer extracts the cell output of the premise sentence
     l_lstm_prem_out = lasagne.layers.SliceLayer(l_lstm_prem, -1, axis=1)
-
-
     # LSTM layer for hypothesis
     # LSTM for premise and LSTM for hypothesis have different parameters
     l_lstm_hypo = lasagne.layers.LSTMLayer(l_in_hypo_embedding, K_HIDDEN, 
         peepholes=False, grad_clipping=GRAD_CLIP, 
         nonlinearity=lasagne.nonlinearities.tanh, 
         cell_init=l_lstm_prem_out, mask_input=l_mask_hypo)
-
+    l_lstm_hypo_dropout = lasagne.layers.DropoutLayer(l_lstm_hypo, p=DROPOUT_RATE, rescale=True)
     # Isolate the last hidden unit output
     l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo, -1, axis=1)
-
     # Attention layer
-    l_attention = lasagne.layers.AttentionLayer([l_lstm_prem, l_lstm_hypo], K_HIDDEN, mask_input=l_mask_prem)
-    l_attention_dropout = lasagne.layers.DropoutLayer(l_attention, p=DROPOUT_RATE, rescale=True)
+    l_attention = lasagne.layers.AttentionLayer([l_lstm_prem_dropout, l_lstm_hypo_dropout], K_HIDDEN, mask_input=l_mask_prem)
     # A softmax layer create probability distribution of the prediction
-    l_out = lasagne.layers.DenseLayer(l_attention_dropout, num_units=NUM_LABELS,
+    l_out = lasagne.layers.DenseLayer(l_attention, num_units=NUM_LABELS,
         W=lasagne.init.Normal(), nonlinearity=lasagne.nonlinearities.softmax)
 
     # The output of the net
@@ -232,7 +216,10 @@ def main():
     validate = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], [cost, val_acc], allow_input_downcast=True)
 
     print("Training ...")
-    import sys
+    print('Regularization strength: ', REGU)
+    print('Learning rate: ', LEARNING_RATE)
+    print('Dropout rate: ', DROPOUT_RATE)
+    print('Hidden size: ', K_HIDDEN)
     sys.stdout.flush()
     try:
         for epoch in range(NUM_EPOCHS):
@@ -243,12 +230,6 @@ def main():
             train_acc = 0
             while n < TRAIN_SIZE:
                 X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(n, data_train)
-                """
-                print(X_prem.shape)
-                print(X_prem_mask.shape)
-                print(X_hypo.shape)
-                print(X_hypo_mask.shape)
-                """
                 err, acc = train(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
                 avg_cost += err
                 train_acc += acc
@@ -287,4 +268,21 @@ def main():
         pass
 
 if __name__ == '__main__':
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'hr:l:d:k:', ['regu=', 'learning_rate=', 'dropout_rate=', 'k_hidden='])
+    except getopt.GetoptError:
+        print('argtest.py -r <regu strength> -l <learning rate> -d <dropout rate> -k <hidden size>')
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt == '-h':
+            print('argtest.py -r <regu strength> -l <learning rate> -d <dropout rate> -k <hidden size>')
+            sys.exit()
+        elif opt in ('-r', '--regu'):
+            REGU = float(arg)
+        elif opt in ('-l', '--learning_rate'):
+            LEARNING_RATE = float(arg)
+        elif opt in ('-d', '--dropout_rate'):
+            DROPOUT_RATE = float(arg)
+        elif opt in ('-k', '--k_hidden'):
+            K_HIDDEN = int(arg)
     main()

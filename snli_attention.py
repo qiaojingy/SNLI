@@ -7,38 +7,28 @@ import lasagne
 
 # Lasagne seed for reproducibility
 lasagne.random.set_rng(np.random.RandomState(1))
-
 # Length of word vector
 WORD_VECTOR_SIZE = 300
-
 # Number of labels
 NUM_LABELS = 4
-
 # Size of embeddings and hidden unit
 K_HIDDEN = 300
-
 # Learning rate
 LEARNING_RATE = 0.01
-
 # All gradients above this will be clipped
 GRAD_CLIP = 100
-
 # Number of epochs to train the net
 NUM_EPOCHS = 20
-
 # Batch Size
 BATCH_SIZE = 1024
 
 # Load data
 from read_snli import *
-
 data_train, data_val, data_test = load_dataset()
-
 # Clip size to test algorithm
-data_train = data_train[10000:20000]
+data_train = data_train
 data_val = data_val
 data_test = data_test[0:200]
-
 # Number of training samples and validation samples
 TRAIN_SIZE = len(data_train)
 VAL_SIZE = len(data_val)
@@ -116,13 +106,15 @@ def main():
     """
 
     # Theano functions for training and computing cost
+    train_acc = T.mean(T.eq(T.argmax(network_output, axis=1), target_values), dtype=theano.config.floatX)
     print("Compiling functions ...")
-    train = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], cost, updates=updates, allow_input_downcast=True)
+    train = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], [cost, train_acc], updates=updates, allow_input_downcast=True)
 
     # Theano function computing the validation loss and accuracy
     val_acc = T.mean(T.eq(T.argmax(network_output, axis=1), target_values), dtype=theano.config.floatX)
     validate = theano.function([l_in_prem.input_var, l_mask_prem.input_var, l_in_hypo.input_var, l_mask_hypo.input_var, target_values], [cost, val_acc], allow_input_downcast=True)
 
+    """
     print("Training ...")
     try:
         for epoch in range(NUM_EPOCHS):
@@ -153,6 +145,55 @@ def main():
             print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
             print("  validation accuracy:\t\t{:.2f} %".format(
             val_acc / val_batches * 100))
+
+    except KeyboardInterrupt:
+        pass
+    """
+    print("Training ...")
+    import sys
+    sys.stdout.flush()
+    try:
+        for epoch in range(NUM_EPOCHS):
+            n = 0
+            avg_cost = 0.0
+            count = 0
+            sub_epoch = 0
+            train_acc = 0
+            while n < TRAIN_SIZE:
+                X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(n, data_train)
+                err, acc = train(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                avg_cost += err
+                train_acc += acc
+                n += BATCH_SIZE
+                count += 1
+
+                if (n / BATCH_SIZE) % (TRAIN_SIZE / BATCH_SIZE / 5) == 0:
+                    sub_epoch += 1
+                    avg_cost /= count
+                    print("Sub epoch {} average loss = {}, accuracy = {}".format(sub_epoch, avg_cost, train_acc / count * 100))
+                    avg_cost = 0
+                    count = 0
+                    train_acc = 0
+
+
+                    # Calculate validation accuracy
+                    m = 0
+                    val_err = 0
+                    val_acc = 0
+                    val_batches = 0
+                    while m < VAL_SIZE:
+                        X_prem, X_prem_mask, X_hypo, X_hypo_mask, y = get_batch_data(m, data_val)
+                        err, acc = validate(X_prem, X_prem_mask, X_hypo, X_hypo_mask, y)
+                        val_err += err
+                        val_acc += acc
+                        val_batches += 1
+                        m += BATCH_SIZE
+                        
+                    print("  validation loss:\t\t{:.6f}".format(val_err / val_batches))
+                    print("  validation accuracy:\t\t{:.2f} %".format(
+                    val_acc / val_batches * 100))
+                    sys.stdout.flush()
+            
 
     except KeyboardInterrupt:
         pass
