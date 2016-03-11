@@ -598,7 +598,7 @@ def adam(loss_or_grads, params, learning_rate=0.001, beta1=0.9,
         if masks != None:
           for (paramName, mask) in masks:
             if param.name == paramName:
-              print("{} is masked".format(param.name))
+              print('{} is masked'.format(param.name))
               updates[param] = param - mask * step
 
     updates[t_prev] = t
