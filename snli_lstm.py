@@ -153,14 +153,13 @@ def main():
     l_in_embedding_dropout = lasagne.layers.DropoutLayer(l_in_embedding, p=DROPOUT_RATE, rescale=True)
     l_in_prem_embedding = lasagne.layers.SliceLayer(l_in_embedding_dropout, 
         slice(0, MAX_LENGTH_PREM), axis=1)
-    l_in_hypo_embedding = lasagne.layers.SliceLayer(l_in_embedding,
+    l_in_hypo_embedding = lasagne.layers.SliceLayer(l_in_embedding_dropout,
         slice(MAX_LENGTH_PREM, MAX_LENGTH_PREM + MAX_LENGTH_HYPO), axis=1)
     # LSTM layer for premise
     l_lstm_prem = lasagne.layers.LSTMLayer_withCellOut(l_in_prem_embedding, K_HIDDEN, 
         peepholes=False, grad_clipping=GRAD_CLIP, 
         nonlinearity=lasagne.nonlinearities.tanh, 
         mask_input=l_mask_prem, only_return_final=False)
-    l_lstm_prem_dropout = lasagne.layers.DropoutLayer(l_lstm_prem, p=DROPOUT_RATE, rescale=True)
     # The slicelayer extracts the cell output of the premise sentence
     l_lstm_prem_out = lasagne.layers.SliceLayer(l_lstm_prem, -1, axis=1)
     # LSTM layer for hypothesis
@@ -171,11 +170,9 @@ def main():
         cell_init=l_lstm_prem_out, mask_input=l_mask_hypo)
     l_lstm_hypo_dropout = lasagne.layers.DropoutLayer(l_lstm_hypo, p=DROPOUT_RATE, rescale=True)
     # Isolate the last hidden unit output
-    l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo, -1, axis=1)
-    # Attention layer
-    l_attention = lasagne.layers.AttentionLayer([l_lstm_prem_dropout, l_lstm_hypo_dropout], K_HIDDEN, mask_input=l_mask_prem)
+    l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo_dropout, -1, axis=1)
     # A softmax layer create probability distribution of the prediction
-    l_out = lasagne.layers.DenseLayer(l_attention, num_units=NUM_LABELS,
+    l_out = lasagne.layers.DenseLayer(l_hypo_out, num_units=NUM_LABELS,
         W=lasagne.init.Normal(), nonlinearity=lasagne.nonlinearities.softmax)
 
     # The output of the net
