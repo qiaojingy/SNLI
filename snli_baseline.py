@@ -69,18 +69,18 @@ def main():
     l_lstm_prem = lasagne.layers.LSTMLayer_withCellOut(l_in_prem, K_HIDDEN, 
         peepholes=False, grad_clipping=GRAD_CLIP, 
         nonlinearity=lasagne.nonlinearities.tanh, 
-        mask_input=l_mask_prem, only_return_final=True)
+        mask_input=l_mask_prem, only_return_final=True);
 
 
     # The slicelayer extracts the cell output of the premise sentence
-    # l_inter_cell = lasagne.layers.SliceLayer(l_lstm_prem, -1, 1)
+    l_inter_cell = lasagne.layers.SliceLayer(l_lstm_prem, -1, 1)
 
 
     # LSTM layer for hypothesis
     # LSTM for premise and LSTM for hypothesis have different parameters
     l_lstm_hypo = lasagne.layers.LSTMLayer(l_in_hypo, K_HIDDEN, peepholes=False,
         grad_clipping=GRAD_CLIP, nonlinearity=lasagne.nonlinearities.tanh, 
-        cell_init=l_lstm_prem, mask_input=l_mask_hypo)
+        cell_init=l_inter_cell, mask_input=l_mask_hypo)
 
     # Isolate the last hidden unit output
     l_hypo_out = lasagne.layers.SliceLayer(l_lstm_hypo, -1, 1)

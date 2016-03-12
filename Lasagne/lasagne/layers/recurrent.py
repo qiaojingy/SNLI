@@ -1343,10 +1343,13 @@ class LSTMLayer_withCellOut(MergeLayer):
         # When only_return_final is true, the second (sequence step) dimension
         # will be flattened
         if self.only_return_final:
-            return 2, input_shape[0], self.num_units
+            return input_shape[0], self.num_units
         # Otherwise, the shape will be (n_batch, n_steps, num_units)
         else:
-            return 2, input_shape[0], input_shape[1], self.num_units
+            if input_shape[1] is None:
+                return input_shape[0], input_shape[1], self.num_units
+            else:
+                return input_shape[0], input_shape[1] * 2, self.num_units
 
     def get_output_for(self, inputs, **kwargs):
         """
@@ -1539,8 +1542,8 @@ class LSTMLayer_withCellOut(MergeLayer):
         # When it is requested that we only return the final sequence step,
         # we need to slice it out immediately after scan is applied
         if self.only_return_final:
-            hid_out = hid_out[-1]
-            cell_out = cell_out[-1]
+            hid_out = hid_out[-1].dimshuffle(0, 'x', 1);
+            cell_out = cell_out[-1].dimshuffle(0, 'x', 1);
         else:
             # dimshuffle back to (n_batch, n_time_steps, n_features))
             hid_out = hid_out.dimshuffle(1, 0, 2)
@@ -1551,7 +1554,7 @@ class LSTMLayer_withCellOut(MergeLayer):
                 hid_out = hid_out[:, ::-1]
                 cell_out = cell_out[:, ::-1]
 
-        out = T.concatenate([hid_out, cell_out],axis=1)
+        out = T.concatenate([hid_out, cell_out], axis=1)
     
         return out
 
